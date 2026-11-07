@@ -1,0 +1,7 @@
+if(NOT EXISTS "${PROGRAM}")
+  message(FATAL_ERROR "Test program does not exist: ${PROGRAM}")
+endif()
+execute_process(COMMAND "${PROGRAM}" mismatch RESULT_VARIABLE result OUTPUT_QUIET ERROR_QUIET)
+if(NOT result MATCHES "^[1-9][0-9]*$" AND NOT result STREQUAL "Subprocess aborted")
+  message(FATAL_ERROR "Child did not terminate as expected: ${result}")
+endif()

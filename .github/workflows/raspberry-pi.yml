@@ -1,0 +1,36 @@
+name: Raspberry Pi
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  raspberry-pi:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: [self-hosted, Linux, ARM64, raspberry-pi]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Unit and functional tests
+        run: ctest --test-dir build -C Release -L "unit|functional" --output-on-failure
+      - name: Benchmarks
+        run: ctest --test-dir build -C Release -L performance --output-on-failure
+      - name: Install static library
+        run: cmake --install build --config Release --prefix package
+      - name: Configure external consumer
+        run: cmake -S tests/consumer -B build/consumer -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$GITHUB_WORKSPACE/package"
+      - name: Build external consumer
+        run: cmake --build build/consumer --config Release
+      - name: Run external consumer
+        run: build/consumer/consumer
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apfloat-raspberry-pi
+          path: |
+            package
+            build/benchmark.csv
+          if-no-files-found: error
