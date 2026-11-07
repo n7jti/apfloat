@@ -16,6 +16,17 @@ cmake --install build --config Release --prefix install
 
 The installed package exports `apfloat::apfloat`; consume it with `find_package(apfloat CONFIG REQUIRED)` and set `CMAKE_PREFIX_PATH` to the installation prefix. Set `BUILD_TESTING=OFF` to build only the library. `tests/consumer` is a minimal external consumer.
 
+### Build and test in VS Code
+
+1. Open the repository root as a folder in VS Code and trust the workspace. Install and enable Microsoft's **CMake Tools** (`ms-vscode.cmake-tools`) and **C/C++** (`ms-vscode.cpptools`) extensions in the active VS Code profile. For Remote SSH, install or enable them on the machine where the folder is open.
+2. Install a C++ compiler and CMake 3.20 or newer. On Windows, use Visual Studio or Build Tools with the **Desktop development with C++** workload; on Raspberry Pi, use the prerequisites described below.
+3. If prompted, select a compiler kit, such as Visual Studio/MSVC on Windows or GCC on the Pi. Otherwise run **CMake: Select a Kit** from the Command Palette, followed by **CMake: Configure**. The project uses `out/vscode` for VS Code builds so they do not conflict with command-line builds.
+4. Use **Build** in the status bar or **CMake: Build** from the Command Palette. Use **CMake: Run Tests** or the Testing view to execute CTest tests. The performance test writes `out/vscode/benchmark.csv`; it is included when running all tests.
+
+The project is a static library, not a standalone application. To launch a test executable, use **CMake: Set Launch/Debug Target** and select `apfloat_unit` or `apfloat_functional`, then **CMake: Run Without Debugging** (or **CMake: Debug**). `apfloat_benchmark` requires an output path argument, so run it through CTest instead.
+
+If the controls are missing, check that the status bar is visible (View > Appearance > Status Bar), the folder containing `CMakeLists.txt` is open, and **CMake Tools**, not just a CMake syntax extension, is enabled in the current profile and local/remote environment. Reload the VS Code window after installing or enabling it. The CMake Tools commands in the Command Palette and its Project Outline remain available even if status-bar items are hidden. If configuration fails, open the **CMake/Build** output channel and check the compiler and CMake paths; select a kit again after installing the compiler.
+
 ## Usage
 
 ```cpp
