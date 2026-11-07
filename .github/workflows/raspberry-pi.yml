@@ -27,6 +27,12 @@ jobs:
         run: cmake --build build/consumer --config Release
       - name: Run external consumer
         run: build/consumer/consumer
+      - name: Configure in-tree consumer
+        run: cmake -S tests/consumer -B build/consumer-in-tree -DCMAKE_BUILD_TYPE=Release -DAPFLOAT_SOURCE_DIR="$GITHUB_WORKSPACE" -DBUILD_TESTING=ON
+      - name: Build in-tree consumer
+        run: cmake --build build/consumer-in-tree --config Release
+      - name: Run in-tree consumer
+        run: build/consumer-in-tree/consumer
       - uses: actions/upload-artifact@v4
         with:
           name: apfloat-raspberry-pi

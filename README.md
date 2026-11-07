@@ -1,6 +1,6 @@
 # apfloat
 
-A C++17 binary floating-point static library with per-value precision, portable CMake builds, and dependency-free tests and benchmarks. The project was generated with GitHub Copilot and is intended for hobby calculations of pi on a Raspberry Pi. The supported targets are MSVC on Windows and native 64-bit Raspberry Pi OS/Linux with a C++17 compiler. The Raspberry Pi workflow requires a separately provisioned runner.
+A C++17 binary floating-point static library with per-value precision and a portable CMake package. The supported targets are MSVC on Windows and native 64-bit Raspberry Pi OS/Linux with a C++17 compiler. The Raspberry Pi workflow requires a separately provisioned runner.
 
 ## Build and test
 
@@ -14,7 +14,29 @@ ctest --test-dir build -C Release -L performance --output-on-failure
 cmake --install build --config Release --prefix install
 ```
 
-The installed package exports `apfloat::apfloat`; consume it with `find_package(apfloat CONFIG REQUIRED)` and set `CMAKE_PREFIX_PATH` to the installation prefix. Set `BUILD_TESTING=OFF` to build only the library. `tests/consumer` is a minimal external consumer.
+The installed package exports `apfloat::apfloat`; consume it with `find_package(apfloat CONFIG REQUIRED)` and set `CMAKE_PREFIX_PATH` to the installation prefix. Set `BUILD_TESTING=OFF` to build only the library. `tests/consumer` is built in CI against both the installed package and the source tree.
+
+## Consume from another CMake project
+
+The recommended approach for a built or installed dependency is the exported CMake package:
+
+```cmake
+find_package(apfloat CONFIG REQUIRED)
+target_link_libraries(my_app PRIVATE apfloat::apfloat)
+```
+
+Set `CMAKE_PREFIX_PATH` to the install prefix when configuring the consumer. The install is relocatable and includes the public headers, static library, CMake package files, and MIT license.
+
+For an in-tree source dependency, add the project and link the same namespaced target:
+
+```cmake
+add_subdirectory(path/to/apfloat EXCLUDE_FROM_ALL)
+target_link_libraries(my_app PRIVATE apfloat::apfloat)
+```
+
+`FetchContent_MakeAvailable(apfloat)` can be used in place of `add_subdirectory`; pin `GIT_TAG` to a release tag or commit in the consuming project. The project does not yet publish release tags. When included as a subproject, apfloat does not add its own test or benchmark targets to the parent build. When configured as the top-level project, `BUILD_TESTING` controls those targets and defaults to `ON` through CTest.
+
+The numeric implementation is not suitable for computing millions of digits of pi: precision is capped at 65,536 binary significand bits, or about 19,728 significant decimal digits per value (roughly 19,727 digits after the decimal point for pi). Its straightforward limb-based algorithms are intended for hobby calculations rather than very large-scale digit generation.
 
 ### Build and test in VS Code
 
@@ -92,5 +114,9 @@ For each session, connect to the Pi, use `sudo -iu gitrunr` to switch to the run
 ```
 
 Leave that terminal open, then manually dispatch the **Raspberry Pi** workflow on the default branch in GitHub Actions. Its job skips other branches. Inspect the run and its uploaded artifacts, and press Ctrl+C in the Pi terminal after it finishes to stop the runner. If the job remains queued, verify that the runner is online and has all `self-hosted`, `Linux`, `ARM64`, and `raspberry-pi` labels. For package, network, checksum, or registration errors, resolve the reported problem before retrying; setup will not automatically replace a partial installation.
+
+## License
+
+This project is distributed under the MIT License; see [LICENSE](LICENSE).
 
 GitHub warns that self-hosted runners on public repositories are risky. Any matching queued job can run while the runner is online. Restrict repository and workflow administration, do not run untrusted code, and keep the runner offline when not needed. Windows retains its automatic triggers. Neither workflow publishes releases. See the [design document](docs/design.md) for the numerical architecture and decisions.

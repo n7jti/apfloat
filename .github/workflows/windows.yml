@@ -28,6 +28,12 @@ jobs:
         run: cmake --build build/consumer --config Release
       - name: Run external consumer
         run: .\build\consumer\Release\consumer.exe
+      - name: Configure in-tree consumer
+        run: cmake -S tests/consumer -B build/consumer-in-tree "-DAPFLOAT_SOURCE_DIR=${{ github.workspace }}" -DBUILD_TESTING=ON
+      - name: Build in-tree consumer
+        run: cmake --build build/consumer-in-tree --config Release
+      - name: Run in-tree consumer
+        run: .\build\consumer-in-tree\Release\consumer.exe
       - uses: actions/upload-artifact@v4
         with:
           name: apfloat-windows
