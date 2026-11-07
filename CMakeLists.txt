@@ -37,6 +37,12 @@ if(BUILD_TESTING)
     "-DPROGRAM=$<TARGET_FILE:apfloat_functional>"
     -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/uncaught.cmake)
   set_tests_properties(uncaught_mismatch PROPERTIES LABELS functional)
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_program(BASH_EXECUTABLE bash REQUIRED)
+    find_program(SCRIPT_EXECUTABLE script REQUIRED)
+    add_test(NAME pi_scripts COMMAND ${BASH_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/pi-scripts.sh)
+    set_tests_properties(pi_scripts PROPERTIES LABELS functional)
+  endif()
   add_executable(apfloat_benchmark tests/benchmark.cpp)
   target_link_libraries(apfloat_benchmark PRIVATE apfloat::apfloat)
   target_compile_definitions(apfloat_benchmark PRIVATE

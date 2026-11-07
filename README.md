@@ -52,6 +52,34 @@ CTest labels are `unit`, `functional`, and `performance`. The suites check multi
 
 The Windows GitHub Actions workflow builds, runs unit and functional tests and benchmarks, and uploads the installed static library and CSV results. The Raspberry Pi workflow is manually triggered and remains unavailable until a self-hosted runner is registered with `self-hosted`, `Linux`, `ARM64`, and `raspberry-pi` labels. Provision a 64-bit Pi with GitHub Actions runner prerequisites, CMake 3.20 or newer and a C++17 compiler.
 
-Register a repository-scoped Linux ARM64 runner using the repository's **Settings > Actions > Runners > New self-hosted runner** instructions. Verify the runner package against GitHub's published checksum, install it in a private directory outside the project, and add the `raspberry-pi` label when configuring it. Use interactive prompts for the repository URL and short-lived registration token rather than recording credentials in shell history or passing them as command arguments. Runner authentication files remain on the Pi and must be protected by filesystem permissions; never commit them or runner diagnostic logs. Do not install the runner as a service.
+### Pi setup and test sessions
 
-To run a Pi check, connect to the Pi interactively, change to the runner installation directory, and start `./run.sh` in the foreground. In GitHub Actions, manually dispatch the **Raspberry Pi** workflow on the default branch; its job skips other branches. Check the run and its uploaded artifacts, then stop the foreground runner with Ctrl+C. A registered runner can execute other matching queued jobs while online: restrict repository administration and workflow changes, and never run untrusted pull-request code on the Pi. The Windows workflow retains its automatic triggers. Neither workflow publishes releases.
+The scripts require a 64-bit Debian-based Raspberry Pi OS/Linux, an administrator with `sudo`, an interactive terminal, outbound HTTPS access to GitHub, and at least 1 GiB of free space in the home filesystem. If connecting over SSH, verify the host-key fingerprint independently before accepting it. Sync the published repository to an administrator-accessible checkout, then run from that checkout:
+
+```sh
+./scripts/pi-create-user.sh
+```
+
+The script uses interactive sudo to install missing build and runner packages and create `gitrunr` as a non-root account with a locked password, private home and no supplementary groups or sudo access. It does not configure direct SSH access or install a service. If the account exists, the script verifies its expected properties and preserves it; conflicts and partial homes require manual inspection, not automatic replacement. A locked password and absence of local authorized keys do not override site-wide or centrally configured authentication policies. Review those policies if direct login must be prohibited.
+
+Enter the account using `sudo -iu gitrunr`, then clone or sync the published repository into its private home. Do not copy the administrator's credentials or Git configuration into it. For this public repository, an ordinary HTTPS clone needs no username or password. From the runner account's checkout:
+
+```sh
+./scripts/pi-setup.sh
+```
+
+Setup runs without sudo; it checks installed dependencies, CMake 3.20 and a working C++17 compiler, then downloads the official Linux ARM64 runner. If packages are missing, have the administrator rerun the provisioning script. The archive is verified against the SHA-256 digest published by GitHub's release API before extraction. Both digest and archive come from GitHub over HTTPS; this is not an independent signature. Setup stops if the digest is unavailable or verification fails.
+
+The runner is installed under `~/.local/share/apfloat/actions-runner`, outside the checkout, with a private parent directory. At the runner's prompts enter the repository URL and a short-lived registration token obtained from **Settings > Actions > Runners > New self-hosted runner**. Do not put credentials in commands, shell history, chat, logs, or project files, and do not record the terminal session. The script supplies the `raspberry-pi` label; confirm the default Linux and ARM64 labels in GitHub Settings. Runner authentication files remain on the Pi, protected by filesystem permissions; do not copy them or runner logs into the repository.
+
+If setup finds a registered runner, it preserves it and asks you to verify its repository and labels in GitHub Settings. An incomplete installation is not overwritten; inspect it and resolve or remove it manually only after confirming what it contains. The script does not install a service.
+
+For each session, connect to the Pi, use `sudo -iu gitrunr` to switch to the runner account, change to its checkout, and run:
+
+```sh
+./scripts/pi-session.sh
+```
+
+Leave that terminal open, then manually dispatch the **Raspberry Pi** workflow on the default branch in GitHub Actions. Its job skips other branches. Inspect the run and its uploaded artifacts, and press Ctrl+C in the Pi terminal after it finishes to stop the runner. If the job remains queued, verify that the runner is online and has all `self-hosted`, `Linux`, `ARM64`, and `raspberry-pi` labels. For package, network, checksum, or registration errors, resolve the reported problem before retrying; setup will not automatically replace a partial installation.
+
+GitHub warns that self-hosted runners on public repositories are risky. Any matching queued job can run while the runner is online. Restrict repository and workflow administration, do not run untrusted code, and keep the runner offline when not needed. Windows retains its automatic triggers. Neither workflow publishes releases. See the [design document](docs/design.md) for the numerical architecture and decisions.
