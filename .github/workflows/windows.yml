@@ -11,7 +11,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Configure
         run: cmake -S . -B build
       - name: Build
@@ -28,7 +28,7 @@ jobs:
         run: cmake --build build/consumer --config Release
       - name: Run external consumer
         run: .\build\consumer\Release\consumer.exe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: apfloat-windows
           path: |
