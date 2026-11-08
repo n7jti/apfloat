@@ -12,11 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAPFLOAT_ENABLE_SCALE_TESTS=ON
       - name: Build
         run: cmake --build build --config Release
       - name: Unit and functional tests
         run: ctest --test-dir build -C Release -L "unit|functional" --output-on-failure
+      - name: Arithmetic scale tests
+        run: ctest --test-dir build -C Release -L scale -V
       - name: Benchmarks
         run: ctest --test-dir build -C Release -L performance --output-on-failure
       - name: Install static library

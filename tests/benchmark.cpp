@@ -36,10 +36,10 @@ int main(int argc, char** argv) {
                             apfloat::number::parse("123456.789", n) != apfloat::error::none) return EXIT_FAILURE;
                         sink += n == a ? 1 : 2;
                     } else if (op == "format") sink += a.to_string().size();
-                    else if (op == "add") sink += (a + b) < a ? 1 : 2;
-                    else if (op == "subtract") sink += (a - b) < a ? 1 : 2;
-                    else if (op == "multiply") sink += (a * b) < a ? 1 : 2;
-                    else sink += (a / b) < a ? 1 : 2;
+                    else if (op == "add") sink += apfloat::number::add(a, b, apfloat::rounding::nearest) < a ? 1 : 2;
+                    else if (op == "subtract") sink += apfloat::number::subtract(a, b, apfloat::rounding::nearest) < a ? 1 : 2;
+                    else if (op == "multiply") sink += apfloat::number::multiply(a, b, apfloat::rounding::nearest) < a ? 1 : 2;
+                    else sink += apfloat::number::divide(a, b, apfloat::rounding::nearest) < a ? 1 : 2;
                 }
                 auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
                     std::chrono::steady_clock::now() - start).count();

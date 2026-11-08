@@ -36,7 +36,7 @@ target_link_libraries(my_app PRIVATE apfloat::apfloat)
 
 `FetchContent_MakeAvailable(apfloat)` can be used in place of `add_subdirectory`; pin `GIT_TAG` to a release tag or commit in the consuming project. The project does not yet publish release tags. When included as a subproject, apfloat does not add its own test or benchmark targets to the parent build. When configured as the top-level project, `BUILD_TESTING` controls those targets and defaults to `ON` through CTest.
 
-The numeric implementation is not suitable for computing millions of digits of pi: precision is capped at 65,536 binary significand bits, or about 19,728 significant decimal digits per value (roughly 19,727 digits after the decimal point for pi). Its straightforward limb-based algorithms are intended for hobby calculations rather than very large-scale digit generation.
+The numeric implementation is not yet validated for computing millions of digits of pi. Although the precision limit now permits more than ten million decimal digits, large-scale division, multiplication and decimal conversion have not yet been validated at that size.
 
 ### Build and test in VS Code
 
@@ -63,27 +63,42 @@ int main() {
         apfloat::number::parse("2", b) != apfloat::error::none) {
         return 1;
     }
-    std::cout << (a * b).to_string() << '\n'; // 3
+    std::cout << apfloat::number::multiply(a, b, apfloat::rounding::nearest).to_string() << '\n'; // 3
 }
 ```
 
 ## Numeric and error contract
 
-- Each `number` defaults to positive zero at 128 bits of binary significand precision. `precision()` inspects that precision; `set_precision` accepts 1 through 65,536 bits. Reducing precision immediately rounds the stored value to nearest, ties to even. Increasing it preserves the value but cannot recover information already rounded away.
-- Binary arithmetic and comparisons require equal precision, including for zero, infinity, and NaN. A mismatch throws `apfloat::precision_mismatch`; the library does not catch it. An application that leaves this exception uncaught terminates; C++ callers can still catch it.
-- Finite arithmetic and decimal parsing round to nearest, ties to even. Normalized nonzero finite values have a leading-bit exponent from -16,384 through 16,384, inclusive. There are no subnormal values: values below the minimum round to zero or the minimum finite value according to nearest-even rounding. Overflow rounds to signed infinity.
-- Signed zeros, infinities and NaNs follow IEEE-style arithmetic and unordered NaN comparisons. The library does not claim full IEEE 754 compliance, support status flags or selectable rounding, or preserve NaN payloads.
-- `number::parse` accepts decimal numbers with an optional sign, decimal point and `e`/`E` exponent, or lowercase `inf`, `infinity`, and `nan`, optionally signed. Whitespace is not accepted. Inputs are limited to 100,000 significand digits and a decimal scale between -100,000 and 100,000. `to_string()` emits exact decimal text that round-trips at the same precision; it is not necessarily the shortest representation.
+- Each `number` defaults to positive zero at 128 bits of binary significand precision. `precision()` inspects that precision; `set_precision` accepts 1 through `number::maximum_precision` bits, a representational bound derived from the range of `int`. Available memory can impose a lower practical limit. Reducing precision immediately rounds the stored value to nearest, ties to even. Increasing it preserves the value but cannot recover information already rounded away.
+- Binary arithmetic accepts different operand precisions and produces a result at the greater operand precision, including for zero, infinity, and NaN. The operands are not modified; increasing result precision cannot recover information previously rounded out of an operand. Comparisons use the represented values exactly, independently of precision. The legacy `precision_mismatch` exception type remains available but is not thrown for mixed-precision operations.
+- Named arithmetic functions `number::add`, `subtract`, `multiply`, and `divide` require an explicit rounding mode. `parse` and `set_precision` default to round-to-nearest, ties-to-even, and also accept a rounding mode. The modes `rounding::downward` and `rounding::upward` round toward negative or positive infinity, respectively. An invalid rounding mode throws `std::invalid_argument`.
+- Normalized nonzero finite values have a leading-bit exponent from -16,384 through 16,384, inclusive. There are no subnormal values. Nearest rounding selects zero or the minimum finite value on underflow and signed infinity on overflow. Directed rounding selects the appropriate bounding value: signed zero or the minimum magnitude on underflow, and the maximum finite magnitude or signed infinity on overflow. Exact cancellation rounds to negative zero only in downward mode; zero and infinity special cases retain their documented arithmetic behavior.
+- Signed zeros, infinities and NaNs follow IEEE-style arithmetic and unordered NaN comparisons. The library does not claim full IEEE 754 compliance, support status flags, or preserve NaN payloads.
+- `number::parse` accepts decimal numbers with an optional sign, decimal point and `e`/`E` exponent, or lowercase `inf`, `infinity`, and `nan`, optionally signed. Whitespace is not accepted. The significand digit count and effective decimal scale are bounded by `number::maximum_precision / 8`; the explicit exponent magnitude is bounded by twice that value. These are representation-safety limits, not guarantees that enough memory is available. `to_string()` emits exact decimal text that round-trips at the same precision; it is not necessarily the shortest representation.
 - `parse` and `set_precision` return explicit `error` values for invalid input or limits and leave the destination unchanged on those errors. IEEE-style division by zero and invalid arithmetic yield infinity or NaN, rather than an error result.
 - Allocation failures and other unexpected C++ exceptions are not caught by the library. Operating-system faults such as access violations are not portable C++ exceptions and are not handled by the library.
+
+Directed rounding can be used to construct bounds, for example by dividing `1` by `3` once in each direction. Callers must also bound their algorithm's approximation error, propagate both endpoints correctly, and handle NaNs, infinities, and intervals crossing zero; directed operations alone do not certify an entire calculation. Million-digit calculations have not yet been verified.
+
+```cpp
+apfloat::number one, three;
+if (apfloat::number::parse("1", one) != apfloat::error::none ||
+    apfloat::number::parse("3", three) != apfloat::error::none) {
+    return 1;
+}
+auto lower = apfloat::number::divide(one, three, apfloat::rounding::downward);
+auto upper = apfloat::number::divide(one, three, apfloat::rounding::upward);
+```
 
 ## Tests and performance
 
 CTest labels are `unit`, `functional`, and `performance`. The suites check multi-limb and rounded-division fixtures independently calculated with .NET `BigInteger`, and compare deterministic arithmetic with native integer and `double` calculations. The performance test writes `build/benchmark.csv`: each operation and precision has one warm-up and five recorded samples of ten iterations. The parse and arithmetic measurements include a comparison to consume each result. Results include platform, compiler and build configuration. They are informational and have no regression threshold; compare runs only on suitably controlled machines.
 
+For optional large arithmetic checks, configure with `-DAPFLOAT_ENABLE_SCALE_TESTS=ON`, build, and run `ctest --test-dir build -C Release -L scale -V`. The integer test checks every limb of the exact square of a 33,219,424-bit integer and reports elapsed time and peak resident memory; on Linux ARM64 it fails at 8 GiB peak memory. A separate public-API test checks directed division of 1 by 3 and multiplication by 3 at 33,219,413 bits. These checks do not cover general large division or decimal conversion and do not establish full-scale readiness.
+
 ## CI
 
-The Windows GitHub Actions workflow builds, runs unit and functional tests and benchmarks, and uploads the installed static library and CSV results. The Raspberry Pi workflow is manually triggered and remains unavailable until a self-hosted runner is registered with `self-hosted`, `Linux`, `ARM64`, and `raspberry-pi` labels. Provision a 64-bit Pi with GitHub Actions runner prerequisites, CMake 3.20 or newer and a C++17 compiler.
+The Windows GitHub Actions workflow builds, runs unit and functional tests and benchmarks, and uploads the installed static library and CSV results. The manually triggered Raspberry Pi workflow also runs the opt-in arithmetic scale checks. It requires a self-hosted runner registered with `self-hosted`, `Linux`, `ARM64`, and `raspberry-pi` labels. Provision a 64-bit Pi with GitHub Actions runner prerequisites, CMake 3.20 or newer and a C++17 compiler.
 
 ### Pi setup and test sessions
 
