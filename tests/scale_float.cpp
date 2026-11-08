@@ -3,6 +3,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <iostream>
+#include <string>
 
 int main() {
     constexpr std::size_t precision = 33219413;
@@ -20,7 +21,18 @@ int main() {
     auto elapsed_divide = std::chrono::steady_clock::now();
     auto product = apfloat::number::multiply(lower, three, apfloat::rounding::nearest);
     auto elapsed_multiply = std::chrono::steady_clock::now();
-    if (!(lower < upper) || !(product == one)) {
+    // This exact >10-million-digit format/parse round-trip can take 10+ minutes; run only as an explicit scale test.
+    std::string decimal = lower.to_string();
+    auto elapsed_format = std::chrono::steady_clock::now();
+    apfloat::number round_trip;
+    if (round_trip.set_precision(precision) != apfloat::error::none ||
+        apfloat::number::parse(decimal, round_trip) != apfloat::error::none) {
+        std::cerr << "full-scale decimal round-trip parse failed\n";
+        return EXIT_FAILURE;
+    }
+    auto elapsed_parse = std::chrono::steady_clock::now();
+    if (!(lower < upper) || !(product == one) || !(round_trip == lower) ||
+        decimal.size() <= 10000000) {
         std::cerr << "full-scale public arithmetic check failed\n";
         return EXIT_FAILURE;
     }
@@ -28,6 +40,11 @@ int main() {
               << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_divide - start).count()
               << " multiplication_ms="
               << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_multiply - elapsed_divide).count()
+              << " decimal_digits=" << decimal.size()
+              << " format_ms="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_format - elapsed_multiply).count()
+              << " parse_ms="
+              << std::chrono::duration_cast<std::chrono::milliseconds>(elapsed_parse - elapsed_format).count()
               << '\n';
     return EXIT_SUCCESS;
 }

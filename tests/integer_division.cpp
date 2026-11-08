@@ -2,6 +2,7 @@
 #include "../src/apfloat.cpp"
 
 #include <cstdlib>
+#include <chrono>
 #include <iostream>
 #include <random>
 #include <vector>
@@ -98,9 +99,44 @@ bool test_constructed(digits quotient, digits divisor, digits remainder) {
     }
     return true;
 }
+
+bool test_full_scale() {
+    constexpr std::size_t limbs = (33219413 + 31) / 32;
+    std::mt19937 generator(0xd1a1deu);
+    digits divisor_words(limbs), quotient_words(limbs), remainder_words(limbs);
+    for (auto& limb : divisor_words) limb = generator();
+    for (auto& limb : quotient_words) limb = generator();
+    for (auto& limb : remainder_words) limb = generator();
+    divisor_words.back() |= 0x80000000u;
+    quotient_words.back() |= 0x80000000u;
+
+    apfloat::integer divisor(divisor_words);
+    apfloat::integer quotient(quotient_words);
+    apfloat::integer remainder(remainder_words);
+    if (remainder.compare(divisor) >= 0) remainder.subtract(divisor);
+    apfloat::integer dividend = apfloat::multiply_integers(quotient, divisor);
+    dividend.add(remainder);
+
+    const auto start = std::chrono::steady_clock::now();
+    auto actual = apfloat::divide_integers(std::move(dividend), divisor);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start).count();
+    if (actual.first.v != quotient.v || actual.second.v != remainder.v) {
+        std::cerr << "full-scale quotient and remainder check failed\n";
+        return false;
+    }
+    std::cout << "division_operand_bits=" << limbs * 32 << " elapsed_ms=" << elapsed << '\n';
+    return true;
+}
 }
 
-int main() {
+int main(int argc, char** argv) {
+    if (argc == 2 && std::string(argv[1]) == "--full")
+        return test_full_scale() ? EXIT_SUCCESS : EXIT_FAILURE;
+    if (argc != 1) {
+        std::cerr << "unexpected arguments\n";
+        return EXIT_FAILURE;
+    }
     std::mt19937 generator(0x86537912u);
     for (unsigned trial = 0; trial < 12000; ++trial) {
         digits a(1 + generator() % 32), b(1 + generator() % 20);

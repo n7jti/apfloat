@@ -36,7 +36,7 @@ target_link_libraries(my_app PRIVATE apfloat::apfloat)
 
 `FetchContent_MakeAvailable(apfloat)` can be used in place of `add_subdirectory`; pin `GIT_TAG` to a release tag or commit in the consuming project. The project does not yet publish release tags. When included as a subproject, apfloat does not add its own test or benchmark targets to the parent build. When configured as the top-level project, `BUILD_TESTING` controls those targets and defaults to `ON` through CTest.
 
-The numeric implementation is not yet validated for computing millions of digits of pi. Although the precision limit now permits more than ten million decimal digits, large-scale division, multiplication and decimal conversion have not yet been validated at that size.
+The optional scale suite exercises arithmetic at 33,219,413 bits (enough for more than ten million decimal digits), including dense multiplication, general division, and exact decimal formatting followed by a parse round-trip. Run it on the target Raspberry Pi before relying on the library for a large pi computation; the suite measures these operations but does not calculate pi or establish a runtime target.
 
 ### Build and test in VS Code
 
@@ -94,7 +94,7 @@ auto upper = apfloat::number::divide(one, three, apfloat::rounding::upward);
 
 CTest labels are `unit`, `functional`, and `performance`. The suites check multi-limb and rounded-division fixtures independently calculated with .NET `BigInteger`, and compare deterministic arithmetic with native integer and `double` calculations. The performance test writes `build/benchmark.csv`: each operation and precision has one warm-up and five recorded samples of ten iterations. The parse and arithmetic measurements include a comparison to consume each result. Results include platform, compiler and build configuration. They are informational and have no regression threshold; compare runs only on suitably controlled machines.
 
-For optional large arithmetic checks, configure with `-DAPFLOAT_ENABLE_SCALE_TESTS=ON`, build, and run `ctest --test-dir build -C Release -L scale -V`. The integer test checks every limb of the exact square of a 33,219,424-bit integer and reports elapsed time and peak resident memory; on Linux ARM64 it fails at 8 GiB peak memory. A separate public-API test checks directed division of 1 by 3 and multiplication by 3 at 33,219,413 bits. These checks do not cover general large division or decimal conversion and do not establish full-scale readiness.
+For optional large arithmetic checks, configure with `-DAPFLOAT_ENABLE_SCALE_TESTS=ON`, build, and run `ctest --test-dir build -C Release -L scale -V`. The integer multiplication test checks every limb of the exact square of a 33,219,424-bit integer and reports elapsed time and peak resident memory; on Linux ARM64 it fails at 8 GiB peak memory. The integer division test checks a 33,219,413-bit quotient and divisor against an exactly constructed dividend. A public-API test checks directed division of 1 by 3, multiplication by 3, and an exact decimal format/parse round-trip producing over ten million digits at 33,219,413 bits. These checks provide workload-specific evidence, not a pi calculation or a runtime guarantee.
 
 ## CI
 
