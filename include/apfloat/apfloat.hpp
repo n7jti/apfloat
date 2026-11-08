@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -30,9 +31,11 @@ public:
 class number {
 public:
     static constexpr std::size_t default_precision = 128;
-    // Keep intermediate bit counts and exponent sums representable as int.
+    // Reserve signed 64-bit headroom for intermediate bit counts and exponents.
     static constexpr std::size_t maximum_precision =
-        static_cast<std::size_t>((std::numeric_limits<int>::max)() / 4) - 32768;
+        static_cast<std::size_t>((std::numeric_limits<std::int64_t>::max)() / 64);
+    static constexpr std::int64_t minimum_exponent = -(std::int64_t(1) << 40);
+    static constexpr std::int64_t maximum_exponent = std::int64_t(1) << 40;
 
     number() = default;
 
@@ -59,7 +62,7 @@ private:
     std::size_t precision_ = default_precision;
     kind kind_ = kind::finite;
     bool negative_ = false;
-    int exponent_ = 0;
+    std::int64_t exponent_ = 0;
     std::vector<unsigned int> limbs_;
 
     struct implementation;

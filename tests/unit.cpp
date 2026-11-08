@@ -31,6 +31,7 @@ int main() {
     check(n.set_precision(number::maximum_precision + 1) == error::invalid_precision, "precision limit");
     check(n.precision() == 128, "invalid precision changes value");
     check(n.set_precision(number::maximum_precision) == error::none, "maximum representable precision for zero");
+    check(n.set_precision(std::size_t(1) << 32) == error::none, "precision exceeds 32-bit range for zero");
     check(n.set_precision(33219413) == error::none, "precision beyond ten million decimal digits");
     check(number::parse("1", n) == error::none, "parse at large precision");
     text(n, "1");
@@ -50,7 +51,7 @@ int main() {
     }
     check(number::parse("1e99999999999999999999999", n) == error::out_of_range, "decimal exponent limit");
     text(n, "42");
-    text(value("1e100001"), "inf");
+    check(value("1e100001") < value("inf"), "large decimal exponent remains finite");
     text(value("0e100001"), "0");
     text(value("1.125", 3), "1");
     text(value("1.375", 3), "1.5");
@@ -79,14 +80,8 @@ int main() {
     text(number::subtract(value("inf"), value("inf"), apfloat::rounding::nearest), "nan");
     text(number::multiply(value("inf"), value("0"), apfloat::rounding::nearest), "nan");
     text(number::divide(value("inf"), value("inf"), apfloat::rounding::nearest), "nan");
-    text(value("1e5000"), "inf");
-    text(value("-1e-5000"), "-0");
-    text(value("3e4932"), "inf");
-    check(value("1e4932") < value("inf"), "finite upper exponent boundary");
-    text(value("4e-4933"), "0");
-    check(value("5e-4933") == value("8e-4933"), "underflow rounds to minimum finite");
-    check(value("0") < value("5e-4933"), "minimum finite is nonzero");
-    check(value("5e-4933") < value("1e-4932"), "lower exponent boundary");
+    check(value("1e5000") < value("inf"), "expanded positive exponent");
+    check(value("0") < value("1e-5000"), "expanded negative exponent");
     check(value("-0") == value("0"), "signed zero equality");
     check(value("-inf") < value("-123"), "negative infinity order");
     check(value("-2") < value("-1"), "negative order");

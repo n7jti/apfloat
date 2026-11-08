@@ -57,8 +57,11 @@ int main() {
         if (!check_fraction(exponent)) return EXIT_FAILURE;
     apfloat::number n;
     std::string large_integer(100001, '9');
+    apfloat::number infinity;
+    if (apfloat::number::parse("inf", infinity) != apfloat::error::none)
+        return EXIT_FAILURE;
     if (apfloat::number::parse(large_integer, n) != apfloat::error::none ||
-        n.to_string() != "inf") {
+        !(n < infinity)) {
         std::cerr << "decimal input beyond former digit limit failed\n";
         return EXIT_FAILURE;
     }
@@ -66,6 +69,30 @@ int main() {
     if (apfloat::number::parse(large_zero, n) != apfloat::error::none ||
         n.to_string() != "-0") {
         std::cerr << "ten-million-place zero conversion failed\n";
+        return EXIT_FAILURE;
+    }
+    if (apfloat::number::parse("-0e1000000000", n) != apfloat::error::none ||
+        n.to_string() != "-0" ||
+        apfloat::number::parse("0e-1000000000", n) != apfloat::error::none ||
+        n.to_string() != "0") {
+        std::cerr << "large zero decimal exponents failed\n";
+        return EXIT_FAILURE;
+    }
+    const std::size_t decimal_limit = apfloat::number::maximum_precision / 8;
+    if (apfloat::number::parse("-0e" + std::to_string(decimal_limit), n) != apfloat::error::none ||
+        n.to_string() != "-0" ||
+        apfloat::number::parse("0e" + std::to_string(decimal_limit + 1), n) != apfloat::error::out_of_range ||
+        n.to_string() != "-0" ||
+        apfloat::number::parse("0e-" + std::to_string(decimal_limit + 1), n) != apfloat::error::out_of_range ||
+        n.to_string() != "-0") {
+        std::cerr << "decimal scale representational boundary failed\n";
+        return EXIT_FAILURE;
+    }
+    if (apfloat::number::parse("0000000123000000e-6", n) != apfloat::error::none ||
+        n.to_string() != "123" ||
+        apfloat::number::parse("1." + std::string(1000000, '0'), n) != apfloat::error::none ||
+        n.to_string() != "1") {
+        std::cerr << "decimal zero normalization failed\n";
         return EXIT_FAILURE;
     }
     const std::string large_fraction = "1." + std::string(100001, '0') + "125";

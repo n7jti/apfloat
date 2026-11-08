@@ -110,14 +110,83 @@ int main() {
     check(number::add(value("-0"), value("0"), rounding::downward).to_string() == "-0", "downward mixed zero");
     check(number::divide(value("1"), value("0"), rounding::downward).to_string() == "inf", "division by zero");
     check(number::multiply(value("0"), value("inf"), rounding::upward).to_string() == "nan", "invalid arithmetic");
-    check(number::parse("1e-5000", n, rounding::downward) == apfloat::error::none && n.to_string() == "0", "positive underflow down");
-    check(number::parse("1e-5000", n, rounding::upward) == apfloat::error::none && value("0", n.precision()) < n, "positive underflow up");
-    check(number::parse("-1e-5000", n, rounding::upward) == apfloat::error::none && n.to_string() == "-0", "negative underflow up");
-    check(number::parse("-1e-5000", n, rounding::downward) == apfloat::error::none && n < value("0", n.precision()), "negative underflow down");
-    check(number::parse("1e5000", n, rounding::upward) == apfloat::error::none && n.to_string() == "inf", "positive overflow up");
-    check(number::parse("1e5000", n, rounding::downward) == apfloat::error::none && n < value("inf", n.precision()), "positive overflow down");
-    check(number::parse("-1e5000", n, rounding::downward) == apfloat::error::none && n.to_string() == "-inf", "negative overflow down");
-    check(number::parse("-1e5000", n, rounding::upward) == apfloat::error::none && value("-inf", n.precision()) < n, "negative overflow up");
+    auto maximum_power = value("2");
+    for (unsigned i = 0; i < 40; ++i)
+        maximum_power = number::multiply(maximum_power, maximum_power, rounding::nearest);
+    auto minimum = number::divide(value("1"), maximum_power, rounding::nearest);
+    check(maximum_power < value("inf") && value("0") < minimum, "expanded exponent endpoints");
+    check(number::multiply(maximum_power, value("2"), rounding::upward).to_string() == "inf",
+          "positive overflow up");
+    check(number::multiply(maximum_power, value("2"), rounding::downward) < value("inf"),
+          "positive overflow down");
+    check(number::divide(minimum, value("2"), rounding::nearest).to_string() == "0",
+          "positive underflow tie to zero");
+    check(number::divide(minimum, value("2"), rounding::upward) == minimum,
+          "positive underflow up");
+    auto negative_minimum = number::multiply(minimum, value("-1"), rounding::nearest);
+    check(number::divide(negative_minimum, value("2"), rounding::upward).to_string() == "-0",
+          "negative underflow up");
+    check(number::divide(negative_minimum, value("2"), rounding::downward) == negative_minimum,
+          "negative underflow down");
+    auto negative_maximum = number::multiply(maximum_power, value("-1"), rounding::nearest);
+    check(number::multiply(negative_maximum, value("2"), rounding::downward).to_string() == "-inf",
+          "negative overflow down");
+    check(value("-inf") < number::multiply(negative_maximum, value("2"), rounding::upward),
+          "negative overflow up");
+
+    auto tiny = value("0.0009765625", 4);
+    for (bool reverse : {false, true}) {
+        auto large = value("1.5", 3);
+        auto down = reverse ? number::add(tiny, large, rounding::downward)
+                            : number::add(large, tiny, rounding::downward);
+        auto up = reverse ? number::add(tiny, large, rounding::upward)
+                          : number::add(large, tiny, rounding::upward);
+        check(down.to_string() == "1.5" && up.to_string() == "1.625",
+              "large exponent gap directed addition");
+    }
+    check(number::subtract(value("1", 4), tiny, rounding::nearest).to_string() == "1",
+          "large gap nearest at power-of-two boundary");
+    check(number::subtract(value("1", 4), tiny, rounding::downward).to_string() == "0.9375",
+          "large gap downward at power-of-two boundary");
+    check(number::subtract(value("1", 1), value("0.015625", 1), rounding::nearest).to_string() == "1",
+          "one-bit large gap nearest");
+    check(number::subtract(value("1", 1), value("0.015625", 1), rounding::downward).to_string() == "0.5",
+          "one-bit large gap downward");
+    check(number::subtract(value("-1", 4), tiny, rounding::downward).to_string() == "-1.125",
+          "large gap negative downward");
+    check(number::subtract(minimum, value("1e-5000"), rounding::nearest) < value("0"),
+          "expanded exponent comparison");
+    check(number::subtract(minimum, number::divide(minimum, maximum_power, rounding::upward),
+                           rounding::downward).to_string() == "-0",
+          "minimum cancellation across extreme exponents");
+    check(number::add(maximum_power, minimum, rounding::nearest) == maximum_power,
+          "extreme exponent gap nearest");
+    check(number::add(maximum_power, minimum, rounding::upward) > maximum_power,
+          "extreme exponent gap upward");
+    check(number::subtract(maximum_power, minimum, rounding::downward) < maximum_power,
+          "extreme exponent gap subtraction");
+    for (int gap = 6; gap <= 11; ++gap) {
+        int denominator = 1 << gap;
+        auto small_positive = number::divide(value("1", 4), value(std::to_string(denominator), 4),
+                                             rounding::nearest);
+        auto small_negative = number::multiply(small_positive, value("-1", 4), rounding::nearest);
+        for (int significand = 8; significand <= 15; ++significand) {
+            for (int sign : {-1, 1}) {
+                auto large = number::divide(value(std::to_string(sign * significand), 4),
+                                            value("8", 4), rounding::nearest);
+                for (int small_sign : {-1, 1}) {
+                    const auto& small_value = small_sign < 0 ? small_negative : small_positive;
+                    int numerator = sign * significand * (denominator / 8) + small_sign;
+                    for (rounding mode : {rounding::downward, rounding::upward}) {
+                        auto sum = number::add(large, small_value, mode);
+                        check_bound(sum, numerator, denominator, mode == rounding::upward);
+                        check(number::add(small_value, large, mode) == sum,
+                              "large exponent gap commutativity");
+                    }
+                }
+            }
+        }
+    }
 
     for (bool reverse : {false, true}) {
         number low = value("inf", 3), high = value("1", 70);

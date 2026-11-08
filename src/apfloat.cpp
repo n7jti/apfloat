@@ -11,6 +11,7 @@ namespace {
 using word = unsigned int;
 using wide = std::uint64_t;
 static_assert(std::numeric_limits<word>::digits == 32, "32-bit unsigned int required");
+static_assert(std::numeric_limits<std::size_t>::digits >= 64, "64-bit size_t required");
 
 struct integer {
     std::vector<word> v;
@@ -60,6 +61,9 @@ struct integer {
         integer r;
         const auto whole = bits / 32;
         const auto part = unsigned(bits % 32);
+        if (whole > r.v.max_size() - v.size() ||
+            (part && whole == r.v.max_size() - v.size()))
+            throw std::length_error("integer shift exceeds representable size");
         r.v.resize(v.size() + whole + (part ? 1 : 0), 0);
         wide carry = 0;
         for (std::size_t i = 0; i < v.size(); ++i) {
@@ -530,8 +534,8 @@ precision_mismatch::precision_mismatch()
     : std::logic_error("apfloat precision mismatch") {}
 
 struct number::implementation {
-    static constexpr int min_exponent = -16384;
-    static constexpr int max_exponent = 16384;
+    static constexpr std::int64_t min_exponent = number::minimum_exponent;
+    static constexpr std::int64_t max_exponent = number::maximum_exponent;
 
     static void check(rounding mode) {
         if (mode != rounding::nearest && mode != rounding::downward && mode != rounding::upward)
@@ -554,33 +558,33 @@ struct number::implementation {
         integer mantissa = integer(1).shifted(p);
         mantissa.subtract(integer(1));
         r.limbs_ = std::move(mantissa.v);
-        r.exponent_ = max_exponent - static_cast<int>(p - 1);
+        r.exponent_ = max_exponent - static_cast<std::int64_t>(p - 1);
         return r;
     }
-    static number rounded(integer n, integer d, int shift, std::size_t p, bool negative, rounding mode) {
+    static number rounded(integer n, integer d, std::int64_t shift, std::size_t p, bool negative, rounding mode) {
         number r = special(p, kind::finite, negative);
         if (n.zero()) return r;
-        int k = static_cast<int>(n.bits()) - static_cast<int>(d.bits());
+        std::int64_t k = static_cast<std::int64_t>(n.bits()) - static_cast<std::int64_t>(d.bits());
         int cmp = k >= 0 ? n.compare(d.shifted(static_cast<std::size_t>(k)))
                          : n.shifted(static_cast<std::size_t>(-k)).compare(d);
         if (cmp < 0) --k;
-        int top = k + shift;
+        std::int64_t top = k + shift;
         if (top < min_exponent) {
             bool round_up = away_from_zero(mode, negative);
             if (mode == rounding::nearest && top == min_exponent - 1) {
-                integer lhs = n.shifted(static_cast<std::size_t>((std::max)(0, -k)));
-                integer rhs = d.shifted(static_cast<std::size_t>((std::max)(0, k)));
+                integer lhs = n.shifted(static_cast<std::size_t>((std::max)(std::int64_t(0), -k)));
+                integer rhs = d.shifted(static_cast<std::size_t>((std::max)(std::int64_t(0), k)));
                 round_up = lhs.compare(rhs) > 0;
             }
             if (round_up) {
                 integer one(1);
                 r.limbs_ = one.shifted(p - 1).v;
-                r.exponent_ = min_exponent - static_cast<int>(p - 1);
+                r.exponent_ = min_exponent - static_cast<std::int64_t>(p - 1);
             }
             return r;
         }
         if (top > max_exponent) return overflow(p, negative, mode);
-        int adjust = static_cast<int>(p - 1) - k;
+        std::int64_t adjust = static_cast<std::int64_t>(p - 1) - k;
         if (adjust >= 0) n = n.shifted(static_cast<std::size_t>(adjust));
         else d = d.shifted(static_cast<std::size_t>(-adjust));
         auto qr = divide_integers(std::move(n), d);
@@ -596,7 +600,7 @@ struct number::implementation {
         }
         if (top > max_exponent) return overflow(p, negative, mode);
         r.limbs_ = std::move(qr.first.v);
-        r.exponent_ = top - static_cast<int>(p - 1);
+        r.exponent_ = top - static_cast<std::int64_t>(p - 1);
         return r;
     }
     static number add(const number& a, const number& b, bool subtract, rounding mode) {
@@ -611,7 +615,25 @@ struct number::implementation {
         if (x.zero() && y.zero())
             return special(precision, kind::finite,
                            (a.negative_ && bs) || (a.negative_ != bs && mode == rounding::downward));
-        int exp = x.zero() ? b.exponent_ : y.zero() ? a.exponent_ : (std::min)(a.exponent_, b.exponent_);
+        if (!x.zero() && !y.zero()) {
+            const std::int64_t top_a = a.exponent_ + static_cast<std::int64_t>(a.precision_ - 1);
+            const std::int64_t top_b = b.exponent_ + static_cast<std::int64_t>(b.precision_ - 1);
+            const std::int64_t gap = top_a >= top_b ? top_a - top_b : top_b - top_a;
+            if (gap >= static_cast<std::int64_t>(precision) + 2) {
+                // The smaller magnitude is below a quarter ulp at the larger value.
+                const bool a_larger = top_a > top_b;
+                const number& larger = a_larger ? a : b;
+                const bool larger_sign = a_larger ? a.negative_ : bs;
+                const bool smaller_sign = a_larger ? bs : a.negative_;
+                integer retained = integer(larger.limbs_).shifted(precision - larger.precision_ + 2);
+                if (larger_sign == smaller_sign) retained.add(integer(1));
+                else retained.subtract(integer(1));
+                const std::int64_t exp = larger.exponent_ -
+                    static_cast<std::int64_t>(precision - larger.precision_) - 2;
+                return rounded(std::move(retained), integer(1), exp, precision, larger_sign, mode);
+            }
+        }
+        std::int64_t exp = x.zero() ? b.exponent_ : y.zero() ? a.exponent_ : (std::min)(a.exponent_, b.exponent_);
         if (!x.zero()) x = x.shifted(static_cast<std::size_t>(a.exponent_ - exp));
         if (!y.zero()) y = y.shifted(static_cast<std::size_t>(b.exponent_ - exp));
         bool sign = a.negative_;
@@ -649,7 +671,7 @@ struct number::implementation {
         const std::int64_t top_a = std::int64_t(a.exponent_) + std::int64_t(a.precision_) - 1;
         const std::int64_t top_b = std::int64_t(b.exponent_) + std::int64_t(b.precision_) - 1;
         if (top_a != top_b) return top_a < top_b ? -1 : 1;
-        const int base = (std::min)(a.exponent_, b.exponent_);
+        const std::int64_t base = (std::min)(a.exponent_, b.exponent_);
         const auto limb_at = [](const number& value, std::size_t index, std::size_t shift) {
             const std::size_t whole = shift / 32;
             const unsigned part = static_cast<unsigned>(shift % 32);
@@ -693,8 +715,8 @@ error number::parse(std::string_view text, number& result) {
 
 error number::parse(std::string_view text, number& result, rounding mode) {
     implementation::check(mode);
-    // Bound decimal intermediates so their binary sizes remain representable as int.
-    constexpr int decimal_limit = static_cast<int>(maximum_precision / 8);
+    // Four bits per decimal digit and additional headroom bound intermediate sizes.
+    constexpr std::int64_t decimal_limit = static_cast<std::int64_t>(maximum_precision / 8);
     if (text.empty()) return error::invalid_syntax;
     std::size_t pos = 0;
     bool negative = false;
@@ -706,7 +728,7 @@ error number::parse(std::string_view text, number& result, rounding mode) {
         return error::none;
     }
     std::string significand;
-    int fractional = 0;
+    std::int64_t fractional = 0;
     std::size_t digits = 0;
     bool point = false, digit = false;
     while (pos < text.size()) {
@@ -722,7 +744,7 @@ error number::parse(std::string_view text, number& result, rounding mode) {
         ++pos;
     }
     if (!digit) return error::invalid_syntax;
-    int exp = 0;
+    std::int64_t exp = 0;
     bool expneg = false;
     if (pos < text.size() && (text[pos] == 'e' || text[pos] == 'E')) {
         ++pos;
@@ -733,7 +755,7 @@ error number::parse(std::string_view text, number& result, rounding mode) {
         std::size_t start = pos;
         while (pos < text.size() && text[pos] >= '0' && text[pos] <= '9') {
             int next = text[pos++] - '0';
-            constexpr int exponent_limit = decimal_limit * 2;
+            constexpr std::int64_t exponent_limit = decimal_limit * 2;
             if (exp > (exponent_limit - next) / 10) return error::out_of_range;
             exp = exp * 10 + next;
         }
@@ -742,10 +764,15 @@ error number::parse(std::string_view text, number& result, rounding mode) {
     if (pos != text.size()) return error::invalid_syntax;
     exp = (expneg ? -exp : exp) - fractional;
     if (exp < -decimal_limit || exp > decimal_limit) return error::out_of_range;
-    if (significand.find_first_not_of('0') == std::string::npos) {
+    const std::size_t first_nonzero = significand.find_first_not_of('0');
+    if (first_nonzero == std::string::npos) {
         result = implementation::special(result.precision_, kind::finite, negative);
         return error::none;
     }
+    const std::size_t last_nonzero = significand.find_last_not_of('0');
+    exp += static_cast<std::int64_t>(significand.size() - last_nonzero - 1);
+    significand.erase(last_nonzero + 1);
+    significand.erase(0, first_nonzero);
     std::vector<word> groups;
     groups.reserve((significand.size() + 8) / 9);
     std::size_t group_size = significand.size() % 9;
@@ -771,11 +798,11 @@ std::string number::to_string() const {
     if (kind_ == kind::infinity) return negative_ ? "-inf" : "inf";
     integer n(limbs_);
     if (n.zero()) return negative_ ? "-0" : "0";
-    int exp = exponent_;
+    std::int64_t exp = exponent_;
     if (exp < 0) {
         std::size_t cancel = (std::min)(n.trailing_zero_bits(), static_cast<std::size_t>(-exp));
         n.shift_right(cancel);
-        exp += static_cast<int>(cancel);
+        exp += static_cast<std::int64_t>(cancel);
     }
     if (exp >= 0) n = n.shifted(static_cast<std::size_t>(exp));
     else n = multiply_integers(n, power(5, static_cast<std::size_t>(-exp)));
