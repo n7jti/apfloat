@@ -438,6 +438,7 @@ std::pair<integer, integer> divide_integers(integer a, const integer& b) {
         result.second = result.second.shifted(common_zeros);
         return result;
     }
+
     if (b.trailing_zero_bits() == b.bits() - 1)
         return divide_base(std::move(a), b);
 
@@ -458,6 +459,34 @@ std::pair<integer, integer> divide_integers(integer a, const integer& b) {
     }
     remainder.shift_right(shift);
     return {std::move(q), std::move(remainder)};
+}
+
+integer square_root(const integer& n) {
+    if (n.bits() <= 63) {
+        std::uint64_t value = n.v.empty() ? 0 : n.v[0];
+        if (n.v.size() == 2) value |= std::uint64_t(n.v[1]) << 32;
+        std::uint64_t low = 0;
+        std::uint64_t high = std::uint64_t(1) << 32;
+        while (low + 1 < high) {
+            const std::uint64_t middle = low + (high - low) / 2;
+            if (middle <= value / middle) low = middle;
+            else high = middle;
+        }
+        return integer(static_cast<word>(low));
+    }
+
+    const std::size_t shift = n.bits() / 4;
+    integer high = n;
+    high.shift_right(shift * 2);
+    integer result = square_root(high).shifted(shift);
+    integer square = multiply_integers(result, result);
+    integer remainder = n;
+    remainder.subtract(square);
+    integer correction = divide_integers(remainder, result.shifted(1)).first;
+    result.add(correction);
+
+    while (multiply_integers(result, result).compare(n) > 0) result.subtract(integer(1));
+    return result;
 }
 
 integer power(word base, std::size_t exponent) {
@@ -834,6 +863,41 @@ number number::divide(const number& a, const number& b, rounding mode) {
     implementation::check(mode);
     return implementation::muldiv(a, b, true, mode);
 }
+
+number number::sqrt(const number& a, rounding mode) {
+    implementation::check(mode);
+    if (a.kind_ == kind::nan || (a.negative_ &&
+        (a.kind_ == kind::infinity || !a.limbs_.empty())))
+        return implementation::special(a.precision_, kind::nan);
+    if (a.kind_ == kind::infinity) return implementation::special(a.precision_, kind::infinity);
+    if (a.limbs_.empty()) return implementation::special(a.precision_, kind::finite, a.negative_);
+
+    integer significand(a.limbs_);
+    std::int64_t exponent = a.exponent_;
+    if (exponent % 2 != 0) {
+        significand = significand.shifted(1);
+        --exponent;
+    }
+    const std::int64_t leading = exponent + static_cast<std::int64_t>(significand.bits() - 1);
+    const std::int64_t top = leading >= 0 ? leading / 2 : -((-leading + 1) / 2);
+    const std::int64_t result_exponent = top - static_cast<std::int64_t>(a.precision_ - 1);
+    const std::int64_t scale = exponent / 2 - result_exponent;
+    integer radicand = significand.shifted(static_cast<std::size_t>(scale) * 2);
+    integer root = square_root(radicand);
+    integer remainder = radicand;
+    remainder.subtract(multiply_integers(root, root));
+
+    bool increment = !remainder.zero() && mode == rounding::upward;
+    if (mode == rounding::nearest) {
+        integer midpoint = root.shifted(2);
+        midpoint.add(integer(1));
+        increment = remainder.shifted(2).compare(midpoint) > 0;
+    }
+    if (increment) root.add(integer(1));
+    return implementation::rounded(std::move(root), integer(1), result_exponent, a.precision_,
+                                   false, rounding::nearest);
+}
+
 bool operator==(const number& a, const number& b) {
     if (a.kind_ == number::kind::nan || b.kind_ == number::kind::nan) return false;
     if (a.kind_ == number::kind::finite && b.kind_ == number::kind::finite && a.limbs_.empty() && b.limbs_.empty()) return true;

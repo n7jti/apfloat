@@ -48,6 +48,7 @@ public:
     static number subtract(const number& a, const number& b, rounding mode);
     static number multiply(const number& a, const number& b, rounding mode);
     static number divide(const number& a, const number& b, rounding mode);
+    static number sqrt(const number& a, rounding mode);
     std::string to_string() const;
 
     friend bool operator==(const number&, const number&);

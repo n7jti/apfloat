@@ -1,4 +1,6 @@
 #include <apfloat/apfloat.hpp>
+#include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -19,6 +21,44 @@ void text(const apfloat::number& n, const char* expected) {
         std::cerr << "expected " << expected << ", got " << n.to_string() << '\n';
         ++failures;
     }
+}
+std::uint64_t integer_sqrt(std::uint64_t value) {
+    std::uint64_t low = 0;
+    std::uint64_t high = std::uint64_t(1) << 32;
+    while (low + 1 < high) {
+        const std::uint64_t middle = low + (high - low) / 2;
+        if (middle <= value / middle) low = middle;
+        else high = middle;
+    }
+    return low;
+}
+unsigned bit_count(std::uint64_t value) {
+    unsigned result = 0;
+    while (value != 0) { ++result; value >>= 1; }
+    return result;
+}
+double expected_sqrt(std::uint64_t significand, int exponent, std::size_t precision,
+                     apfloat::rounding mode) {
+    const int leading = exponent + static_cast<int>(bit_count(significand)) - 1;
+    const int top = leading >= 0 ? leading / 2 : -((-leading + 1) / 2);
+    const int result_exponent = top - static_cast<int>(precision - 1);
+    const unsigned scale = static_cast<unsigned>(exponent - 2 * result_exponent);
+    const std::uint64_t radicand = significand << scale;
+    std::uint64_t root = integer_sqrt(radicand);
+    const std::uint64_t remainder = radicand - root * root;
+    if (remainder != 0 && mode == apfloat::rounding::upward) ++root;
+    if (mode == apfloat::rounding::nearest && remainder > root) ++root;
+    return std::ldexp(static_cast<double>(root), result_exponent);
+}
+void check_sqrt(std::uint64_t significand, int exponent, std::size_t precision,
+                apfloat::rounding mode) {
+    apfloat::number input = value(std::to_string(significand).c_str(), precision);
+    const auto factor = value(exponent < 0 ? "0.5" : "2", precision);
+    for (int i = 0; i < (exponent < 0 ? -exponent : exponent); ++i)
+        input = apfloat::number::multiply(input, factor, apfloat::rounding::nearest);
+    const double actual = std::stod(apfloat::number::sqrt(input, mode).to_string());
+    const double expected = expected_sqrt(significand, exponent, precision, mode);
+    check(actual == expected, "small exact square-root rounding");
 }
 }
 
@@ -76,6 +116,37 @@ int main() {
     text(number::subtract(value("-0"), value("-0"), apfloat::rounding::nearest), "0");
     text(number::multiply(value("-2"), value("0"), apfloat::rounding::nearest), "-0");
     text(number::divide(value("1"), value("-0"), apfloat::rounding::nearest), "-inf");
+    text(number::sqrt(value("4"), apfloat::rounding::nearest), "2");
+    text(number::sqrt(value("2", 3), apfloat::rounding::nearest), "1.5");
+    text(number::sqrt(value("2", 3), apfloat::rounding::downward), "1.25");
+    text(number::sqrt(value("2", 3), apfloat::rounding::upward), "1.5");
+    text(number::sqrt(value("-0"), apfloat::rounding::nearest), "-0");
+    text(number::sqrt(value("-4"), apfloat::rounding::nearest), "nan");
+    text(number::sqrt(value("-inf"), apfloat::rounding::nearest), "nan");
+    text(number::sqrt(value("inf"), apfloat::rounding::nearest), "inf");
+    text(number::sqrt(value("nan"), apfloat::rounding::nearest), "nan");
+    for (std::size_t p = 1; p <= 12; ++p) {
+        for (std::uint64_t significand = std::uint64_t(1) << (p - 1);
+             significand < (std::uint64_t(1) << p); ++significand) {
+            for (int exponent = -3; exponent <= 3; ++exponent) {
+                for (auto mode : {apfloat::rounding::nearest, apfloat::rounding::downward,
+                                  apfloat::rounding::upward})
+                    check_sqrt(significand, exponent, p, mode);
+            }
+        }
+        std::uint32_t random = 0x9e3779b9u;
+        for (unsigned i = 0; i < 256; ++i) {
+            random = random * 1664525u + 1013904223u;
+            const std::uint64_t significand = 0x80000000u | random;
+            for (int exponent = -3; exponent <= 3; ++exponent) {
+                for (auto mode : {apfloat::rounding::nearest, apfloat::rounding::downward,
+                                  apfloat::rounding::upward})
+                    check_sqrt(significand, exponent, 32, mode);
+            }
+        }
+        text(number::sqrt(value("18446744065119617025", 64), apfloat::rounding::nearest),
+             "4294967295");
+    }
     text(number::divide(value("0"), value("0"), apfloat::rounding::nearest), "nan");
     text(number::subtract(value("inf"), value("inf"), apfloat::rounding::nearest), "nan");
     text(number::multiply(value("inf"), value("0"), apfloat::rounding::nearest), "nan");
