@@ -1,5 +1,7 @@
 #pragma once
 
+#include <apfloat/integer.hpp>
+
 #include <cstddef>
 #include <cstdint>
 #include <limits>

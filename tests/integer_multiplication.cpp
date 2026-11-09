@@ -1,4 +1,7 @@
 // Compile the implementation here to validate private integer multiplication directly.
+#define APFLOAT_INTERNAL_INTEGER_ACCESS
+#include <apfloat/integer.hpp>
+#undef APFLOAT_INTERNAL_INTEGER_ACCESS
 #include "../src/apfloat.cpp"
 
 #include <cstdlib>

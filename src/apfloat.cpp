@@ -1,4 +1,6 @@
+#define APFLOAT_INTERNAL_INTEGER_ACCESS
 #include <apfloat/apfloat.hpp>
+#undef APFLOAT_INTERNAL_INTEGER_ACCESS
 
 #include <algorithm>
 #include <cstdint>
@@ -12,105 +14,6 @@ using word = unsigned int;
 using wide = std::uint64_t;
 static_assert(std::numeric_limits<word>::digits == 32, "32-bit unsigned int required");
 static_assert(std::numeric_limits<std::size_t>::digits >= 64, "64-bit size_t required");
-
-struct integer {
-    std::vector<word> v;
-
-    integer() = default;
-    explicit integer(word n) { if (n) v.push_back(n); }
-    explicit integer(const std::vector<word>& n) : v(n) { trim(); }
-
-    void trim() { while (!v.empty() && v.back() == 0) v.pop_back(); }
-    bool zero() const { return v.empty(); }
-    std::size_t bits() const {
-        if (zero()) return 0;
-        word n = v.back();
-        std::size_t result = (v.size() - 1) * 32;
-        while (n) { ++result; n >>= 1; }
-        return result;
-    }
-    int compare(const integer& b) const {
-        if (v.size() != b.v.size()) return v.size() < b.v.size() ? -1 : 1;
-        for (std::size_t i = v.size(); i-- > 0;) {
-            if (v[i] != b.v[i]) return v[i] < b.v[i] ? -1 : 1;
-        }
-        return 0;
-    }
-    void add(const integer& b) {
-        v.resize((std::max)(v.size(), b.v.size()), 0);
-        wide carry = 0;
-        for (std::size_t i = 0; i < v.size(); ++i) {
-            wide n = wide(v[i]) + (i < b.v.size() ? b.v[i] : 0) + carry;
-            v[i] = word(n);
-            carry = n >> 32;
-        }
-        if (carry) v.push_back(word(carry));
-    }
-    void subtract(const integer& b) {
-        wide borrow = 0;
-        for (std::size_t i = 0; i < v.size(); ++i) {
-            wide a = v[i];
-            wide sub = (i < b.v.size() ? wide(b.v[i]) : 0) + borrow;
-            v[i] = word(a - sub);
-            borrow = a < sub;
-        }
-        trim();
-    }
-    integer shifted(std::size_t bits) const {
-        if (zero()) return integer();
-        integer r;
-        const auto whole = bits / 32;
-        const auto part = unsigned(bits % 32);
-        if (whole > r.v.max_size() - v.size() ||
-            (part && whole == r.v.max_size() - v.size()))
-            throw std::length_error("integer shift exceeds representable size");
-        r.v.resize(v.size() + whole + (part ? 1 : 0), 0);
-        wide carry = 0;
-        for (std::size_t i = 0; i < v.size(); ++i) {
-            wide n = (wide(v[i]) << part) | carry;
-            r.v[i + whole] = word(n);
-            carry = n >> 32;
-        }
-        if (part) r.v[v.size() + whole] = word(carry);
-        r.trim();
-        return r;
-    }
-    void shift_right(std::size_t bits) {
-        std::size_t whole = bits / 32;
-        unsigned part = unsigned(bits % 32);
-        if (whole >= v.size()) { v.clear(); return; }
-        v.erase(v.begin(), v.begin() + whole);
-        if (part) {
-            word carry = 0;
-            for (std::size_t i = v.size(); i-- > 0;) {
-                word next = v[i] << (32 - part);
-                v[i] = (v[i] >> part) | carry;
-                carry = next;
-            }
-        }
-        trim();
-    }
-    std::size_t trailing_zero_bits() const {
-        std::size_t count = 0;
-        for (word n : v) {
-            if (n == 0) { count += 32; continue; }
-            while ((n & 1) == 0) { ++count; n >>= 1; }
-            break;
-        }
-        return count;
-    }
-    bool odd() const { return !zero() && (v[0] & 1); }
-    word divide_small(word b) {
-        wide rem = 0;
-        for (std::size_t i = v.size(); i-- > 0;) {
-            wide n = (rem << 32) | v[i];
-            v[i] = word(n / b);
-            rem = n % b;
-        }
-        trim();
-        return word(rem);
-    }
-};
 
 integer multiply_schoolbook(const integer& a, const integer& b) {
     integer r;
@@ -557,6 +460,28 @@ std::string decimal(const integer& n) {
     return result;
 }
 
+}
+
+void integer::multiply(const integer& other) {
+    *this = multiply_integers(*this, other);
+}
+
+void integer::multiply(std::uint32_t other) {
+    if (other == 0) {
+        v.clear();
+        return;
+    }
+    wide carry = 0;
+    for (word& limb : v) {
+        wide value = wide(limb) * other + carry;
+        limb = word(value);
+        carry = value >> 32;
+    }
+    if (carry) v.push_back(word(carry));
+}
+
+std::string integer::to_string() const {
+    return decimal(*this);
 }
 
 precision_mismatch::precision_mismatch()
